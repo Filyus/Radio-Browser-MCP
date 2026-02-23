@@ -4,7 +4,6 @@ Example usage of Radio Browser MCP
 This script demonstrates how to use the Radio Browser MCP tools
 """
 
-import asyncio
 import os
 import sys
 

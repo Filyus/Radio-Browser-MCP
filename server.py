@@ -11,6 +11,7 @@ import os
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -22,6 +23,8 @@ from app import (
     get_radiobrowser_stats,
     search_stations_by_country,
     search_stations_by_name,
+)
+from app import (
     search_stations_by_tag as app_search_by_tag,
 )
 
@@ -36,9 +39,15 @@ is_intentionally_stopped = False
 current_radio_url = None
 
 # Reconnection configuration (normalized as constants)
-INITIAL_RECONNECT_DELAY = float(os.environ.get("RADIO_INITIAL_RECONNECT_DELAY", 0.1))
-MAX_RECONNECT_DELAY = float(os.environ.get("RADIO_MAX_RECONNECT_DELAY", 30.0))
-RECONNECT_BACKOFF_THRESHOLD = float(os.environ.get("RADIO_RECONNECT_BACKOFF_THRESHOLD", 5.0))
+INITIAL_RECONNECT_DELAY = float(
+    os.environ.get("RADIO_INITIAL_RECONNECT_DELAY", 0.1)
+)
+MAX_RECONNECT_DELAY = float(
+    os.environ.get("RADIO_MAX_RECONNECT_DELAY", 30.0)
+)
+RECONNECT_BACKOFF_THRESHOLD = float(
+    os.environ.get("RADIO_RECONNECT_BACKOFF_THRESHOLD", 5.0)
+)
 
 # Reconnection state
 current_reconnect_delay = INITIAL_RECONNECT_DELAY
@@ -66,7 +75,7 @@ def get_playstate_str(state):
 @mcp.tool()
 def get_radio_stats() -> dict:
     """
-    Get Radio Browser statistics including total number of stations, countries, and other metrics.
+    Get Radio Browser statistics (stations, countries, and other metrics).
 
     Returns:
         dict: Statistics about the Radio Browser database
@@ -146,21 +155,48 @@ def search_stations_by_tag(tag: str) -> dict[str, Any]:
     except Exception as e:
         return {"success": False, "stations": [], "error": str(e)}
 
+def _extract_stream_url_from_playlist(url: str, content: str) -> str | None:
+    lines = content.splitlines()
+    lower_url = url.lower()
+
+    if lower_url.endswith(".pls"):
+        for line in lines:
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key.lower().startswith("file") and value.strip():
+                candidate = value.strip()
+                if candidate.startswith(("http://", "https://")):
+                    return candidate
+                return urllib.parse.urljoin(url, candidate)
+        return None
+
+    # .m3u parser: first non-comment/non-empty entry is stream URI.
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith(("http://", "https://")):
+            return line
+        return urllib.parse.urljoin(url, line)
+    return None
+
+
 def resolve_stream_url(url: str) -> str:
     """Attempts to resolve .m3u/.pls playlists to their stream URL."""
     try:
-        # Check if it's a known playlist format or if we should peek
+        # Check if it's a known playlist format or if we should peek.
         # Do not parse .m3u8 (HLS) manually; VLC handles adaptive playlists.
-        if url.endswith(".m3u") or url.endswith(".pls"):
+        if url.lower().endswith(".m3u") or url.lower().endswith(".pls"):
             req = urllib.request.Request(
                 url, headers={"User-Agent": "RadioBrowserMCP/1.0"}
             )
             with urllib.request.urlopen(req, timeout=5.0) as response:
-                content = response.read().decode("utf-8", errors="ignore").splitlines()
-                for line in content:
-                    line = line.strip()
-                    if line.startswith("http"):
-                        return line
+                content = response.read().decode("utf-8", errors="ignore")
+                resolved = _extract_stream_url_from_playlist(url, content)
+                if resolved:
+                    return resolved
         return url
     except Exception as e:
         print(f"Warning: Failed to resolve playlist URL {url}: {e}")
@@ -229,7 +265,9 @@ def attach_player_event_handlers() -> None:
 
     event_manager = player.event_manager()
     event_manager.event_attach(vlc.EventType.MediaMetaChanged, meta_callback, player)
-    event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, reconnect_callback, player)
+    event_manager.event_attach(
+        vlc.EventType.MediaPlayerEndReached, reconnect_callback, player
+    )
     event_manager.event_attach(
         vlc.EventType.MediaPlayerEncounteredError, reconnect_callback, player
     )
@@ -313,7 +351,7 @@ def get_radio_status() -> dict:
         if media:
             current_url = media.get_mrl()
 
-            # 1. First try to get the asynchronously updated track name from our event hook
+            # 1. First try to get async track name from our event hook.
             if "current_track_name" in globals() and current_track_name:
                 now_playing = current_track_name
             else:
@@ -327,7 +365,7 @@ def get_radio_status() -> dict:
                 if meta_title:
                     title = meta_title
 
-                # Fallback heuristic: If NowPlaying is empty but Title looks like "Artist - Song", use it
+                # Fallback: if title looks like "Artist - Song", reuse it.
                 if not now_playing and title and " - " in title:
                     now_playing = title
 
