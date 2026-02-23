@@ -1,0 +1,10 @@
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the Radio Browser MCP.
+    type: object
+    properties: {}
+  commandFunction:
+    |-
+    (config) => ({ command: 'python', args: ['-m', 'server'] })
+  exampleConfig: {}
