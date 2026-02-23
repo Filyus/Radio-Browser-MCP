@@ -1,12 +1,7 @@
 import json
 import random
 import socket
-import urllib
 import urllib.request
-
-# Set default timeout for all sockets including getaddrinfo
-socket.setdefaulttimeout(15.0)
-
 
 _cached_servers = []
 
@@ -117,11 +112,8 @@ def get_radiobrowser_stats():
     Returns:
     dict: Statistics about the Radio Browser database
     """
-    try:
-        stats = download_radiobrowser("/json/stats", None)
-        return json.loads(stats)
-    except Exception as e:
-        return {"error": f"Failed to retrieve stats: {str(e)}"}
+    stats = download_radiobrowser("/json/stats", None)
+    return json.loads(stats)
 
 
 def search_stations_by_country(country_code):
@@ -134,15 +126,10 @@ def search_stations_by_country(country_code):
     Returns:
     list: List of radio stations in the specified country
     """
-    try:
-        stations = download_radiobrowser(
-            f"/json/stations/bycountrycodeexact/{country_code}", None
-        )
-        return json.loads(stations)
-    except Exception as e:
-        return {
-            "error": f"Failed to retrieve stations for country {country_code}: {str(e)}"
-        }
+    stations = download_radiobrowser(
+        f"/json/stations/bycountrycodeexact/{country_code}", None
+    )
+    return json.loads(stations)
 
 
 def search_stations_by_name(name):
@@ -155,11 +142,8 @@ def search_stations_by_name(name):
     Returns:
     list: List of radio stations matching the search term
     """
-    try:
-        stations = download_radiobrowser("/json/stations/search", {"name": name})
-        return json.loads(stations)
-    except Exception as e:
-        return {"error": f"Failed to search stations by name '{name}': {str(e)}"}
+    stations = download_radiobrowser("/json/stations/search", {"name": name})
+    return json.loads(stations)
 
 
 def search_stations_by_tag(tag):
@@ -172,8 +156,5 @@ def search_stations_by_tag(tag):
     Returns:
     list: List of radio stations matching the tag
     """
-    try:
-        stations = download_radiobrowser("/json/stations/search", {"tag": tag})
-        return json.loads(stations)
-    except Exception as e:
-        return {"error": f"Failed to search stations by tag '{tag}': {str(e)}"}
+    stations = download_radiobrowser("/json/stations/search", {"tag": tag})
+    return json.loads(stations)

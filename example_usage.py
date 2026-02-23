@@ -32,31 +32,34 @@ def demo_radio_browser_mcp():
 
     # 1. Get Radio Browser statistics
     print("\n📊 Getting Radio Browser Statistics...")
-    stats = get_radio_stats()
-    if "error" not in stats:
+    stats_response = get_radio_stats()
+    if stats_response.get("success"):
+        stats = stats_response.get("stats", {})
         print(f"   📻 Total Stations: {stats.get('stations', 'N/A'):,}")
         print(f"   🌍 Countries: {stats.get('countries', 'N/A')}")
         print(f"   🗣️ Languages: {stats.get('languages', 'N/A')}")
         print(f"   👆 Clicks Last Hour: {stats.get('clicks_last_hour', 'N/A'):,}")
     else:
-        print(f"   ❌ Error: {stats['error']}")
+        print(f"   ❌ Error: {stats_response.get('error', 'Unknown error')}")
 
     # 2. Get available servers
     print("\n🌐 Getting Available Servers...")
-    servers = get_available_servers()
-    if "error" not in servers:
-        print(f"   Found {len(servers.get('servers', []))} servers:")
-        for i, server in enumerate(servers.get("servers", [])[:3], 1):
+    servers_response = get_available_servers()
+    servers = servers_response.get("servers", [])
+    if servers_response.get("success"):
+        print(f"   Found {len(servers)} servers:")
+        for i, server in enumerate(servers[:3], 1):
             print(f"   {i}. {server}")
-        if len(servers.get("servers", [])) > 3:
-            print(f"   ... and {len(servers['servers']) - 3} more")
+        if len(servers) > 3:
+            print(f"   ... and {len(servers) - 3} more")
     else:
-        print(f"   ❌ Error: {servers['error']}")
+        print(f"   ❌ Error: {servers_response.get('error', 'Unknown error')}")
 
     # 3. Search stations by country (Turkey)
     print("\n🇹🇷 Searching Turkish Radio Stations...")
-    tr_stations = search_stations_by_country_code("TR")
-    if isinstance(tr_stations, list) and len(tr_stations) > 0:
+    tr_response = search_stations_by_country_code("TR")
+    tr_stations = tr_response.get("stations", [])
+    if tr_response.get("success") and len(tr_stations) > 0:
         print(f"   Found {len(tr_stations)} Turkish stations")
         print("   Top 5 Turkish stations:")
         for i, station in enumerate(tr_stations[:5], 1):
@@ -69,8 +72,9 @@ def demo_radio_browser_mcp():
 
     # 4. Search stations by name (BBC)
     print("\n🎙️ Searching BBC Radio Stations...")
-    bbc_stations = search_stations_by_station_name("BBC")
-    if isinstance(bbc_stations, list) and len(bbc_stations) > 0:
+    bbc_response = search_stations_by_station_name("BBC")
+    bbc_stations = bbc_response.get("stations", [])
+    if bbc_response.get("success") and len(bbc_stations) > 0:
         print(f"   Found {len(bbc_stations)} BBC stations")
         print("   Top 5 BBC stations:")
         for i, station in enumerate(bbc_stations[:5], 1):
@@ -82,8 +86,9 @@ def demo_radio_browser_mcp():
 
     # 5. Search for rock music stations
     print("\n🎸 Searching Rock Music Stations...")
-    rock_stations = search_stations_by_station_name("Rock")
-    if isinstance(rock_stations, list) and len(rock_stations) > 0:
+    rock_response = search_stations_by_station_name("Rock")
+    rock_stations = rock_response.get("stations", [])
+    if rock_response.get("success") and len(rock_stations) > 0:
         print(f"   Found {len(rock_stations)} rock stations")
         print("   Top 3 rock stations:")
         for i, station in enumerate(rock_stations[:3], 1):

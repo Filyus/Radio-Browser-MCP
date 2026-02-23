@@ -11,6 +11,9 @@ import os
 import sys
 import threading
 import time
+import urllib.request
+from typing import Any
+
 import vlc
 from mcp.server.fastmcp import FastMCP
 
@@ -65,27 +68,30 @@ def get_radio_stats() -> dict:
     Returns:
         dict: Statistics about the Radio Browser database
     """
-    result = get_radiobrowser_stats()
-    return result
+    try:
+        result = get_radiobrowser_stats()
+        return {"success": True, "stats": result}
+    except Exception as e:
+        return {"success": False, "stats": {}, "error": str(e)}
 
 
 @mcp.tool()
-def get_available_servers() -> list:
+def get_available_servers() -> dict[str, Any]:
     """
     Get list of all available Radio Browser API servers.
 
     Returns:
-        list: List of Radio Browser server URLs
+        dict[str, Any]: Success flag and list of Radio Browser server URLs
     """
     try:
         servers = get_radiobrowser_base_urls()
-        return {"servers": servers}
+        return {"success": True, "servers": servers}
     except Exception as e:
-        return {"error": f"Failed to retrieve servers: {str(e)}"}
+        return {"success": False, "servers": [], "error": str(e)}
 
 
 @mcp.tool()
-def search_stations_by_country_code(country_code: str) -> list:
+def search_stations_by_country_code(country_code: str) -> dict[str, Any]:
     """
     Search radio stations by country code.
 
@@ -93,14 +99,17 @@ def search_stations_by_country_code(country_code: str) -> list:
         country_code (str): Two-letter country code (e.g., 'US', 'DE', 'TR', 'GB', 'FR')
 
     Returns:
-        list: List of radio stations in the specified country
+        dict[str, Any]: Success flag and list of matching radio stations
     """
-    result = search_stations_by_country(country_code.upper())
-    return result
+    try:
+        result = search_stations_by_country(country_code.upper())
+        return {"success": True, "stations": result}
+    except Exception as e:
+        return {"success": False, "stations": [], "error": str(e)}
 
 
 @mcp.tool()
-def search_stations_by_station_name(name: str) -> list:
+def search_stations_by_station_name(name: str) -> dict[str, Any]:
     """
     Search radio stations by name or partial name.
 
@@ -108,14 +117,17 @@ def search_stations_by_station_name(name: str) -> list:
         name (str): Name or partial name of the radio station to search for
 
     Returns:
-        list: List of radio stations matching the search term
+        dict[str, Any]: Success flag and list of matching radio stations
     """
-    result = search_stations_by_name(name)
-    return result
+    try:
+        result = search_stations_by_name(name)
+        return {"success": True, "stations": result}
+    except Exception as e:
+        return {"success": False, "stations": [], "error": str(e)}
 
 
 @mcp.tool()
-def search_stations_by_tag(tag: str) -> list:
+def search_stations_by_tag(tag: str) -> dict[str, Any]:
     """
     Search radio stations by tag (genre).
 
@@ -123,14 +135,13 @@ def search_stations_by_tag(tag: str) -> list:
         tag (str): Tag or genre to search for (e.g., 'jazz', 'rock', 'classical')
 
     Returns:
-        list: List of radio stations matching the tag
+        dict[str, Any]: Success flag and list of matching radio stations
     """
-    result = app_search_by_tag(tag)
-    return result
-
-
-import urllib.request
-
+    try:
+        result = app_search_by_tag(tag)
+        return {"success": True, "stations": result}
+    except Exception as e:
+        return {"success": False, "stations": [], "error": str(e)}
 
 def resolve_stream_url(url: str) -> str:
     """Attempts to resolve a playlist (.m3u, .pls) to its actual stream URL."""
