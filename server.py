@@ -147,10 +147,11 @@ def search_stations_by_tag(tag: str) -> dict[str, Any]:
         return {"success": False, "stations": [], "error": str(e)}
 
 def resolve_stream_url(url: str) -> str:
-    """Attempts to resolve a playlist (.m3u, .pls) to its actual stream URL."""
+    """Attempts to resolve .m3u/.pls playlists to their stream URL."""
     try:
         # Check if it's a known playlist format or if we should peek
-        if url.endswith(".m3u") or url.endswith(".pls") or url.endswith(".m3u8"):
+        # Do not parse .m3u8 (HLS) manually; VLC handles adaptive playlists.
+        if url.endswith(".m3u") or url.endswith(".pls"):
             req = urllib.request.Request(
                 url, headers={"User-Agent": "RadioBrowserMCP/1.0"}
             )
