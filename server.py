@@ -43,6 +43,9 @@ RECONNECT_BACKOFF_THRESHOLD = float(os.environ.get("RADIO_RECONNECT_BACKOFF_THRE
 # Reconnection state
 current_reconnect_delay = INITIAL_RECONNECT_DELAY
 last_reconnect_attempt_time = 0
+reconnect_timer: threading.Timer | None = None
+reconnect_timer_lock = threading.Lock()
+player_event_handlers_attached = False
 
 
 def get_playstate_str(state):
@@ -168,27 +171,45 @@ current_track_name = None
 
 def reconnect_callback(event, player_instance):
     global is_intentionally_stopped, current_radio_url
-    global current_reconnect_delay, last_reconnect_attempt_time
-    
-    if not is_intentionally_stopped and current_radio_url:
-        now = time.time()
-        
-        # If we are reconnecting too soon, increase backoff
-        if now - last_reconnect_attempt_time < RECONNECT_BACKOFF_THRESHOLD:
-            current_reconnect_delay = min(current_reconnect_delay * 2, MAX_RECONNECT_DELAY)
-        else:
-            current_reconnect_delay = INITIAL_RECONNECT_DELAY
-            
-        last_reconnect_attempt_time = now
-        
-        print(f"Radio disconnect detected. Reconnecting in {current_reconnect_delay:.1f} seconds...", file=sys.stderr)
-        
+    global current_reconnect_delay, last_reconnect_attempt_time, reconnect_timer
+
+    if is_intentionally_stopped or not current_radio_url:
+        return
+
+    now = time.time()
+
+    # If we are reconnecting too soon, increase backoff
+    if now - last_reconnect_attempt_time < RECONNECT_BACKOFF_THRESHOLD:
+        current_reconnect_delay = min(current_reconnect_delay * 2, MAX_RECONNECT_DELAY)
+    else:
+        current_reconnect_delay = INITIAL_RECONNECT_DELAY
+
+    last_reconnect_attempt_time = now
+
+    with reconnect_timer_lock:
+        if reconnect_timer and reconnect_timer.is_alive():
+            return
+
+        print(
+            (
+                "Radio disconnect detected. Reconnecting in "
+                f"{current_reconnect_delay:.1f} seconds..."
+            ),
+            file=sys.stderr,
+        )
+
         def do_reconnect():
+            global reconnect_timer
+            with reconnect_timer_lock:
+                reconnect_timer = None
+
             if not is_intentionally_stopped and current_radio_url:
                 print(f"Reconnecting to {current_radio_url}...", file=sys.stderr)
                 play_radio_station(current_radio_url)
 
-        threading.Timer(current_reconnect_delay, do_reconnect).start()
+        reconnect_timer = threading.Timer(current_reconnect_delay, do_reconnect)
+        reconnect_timer.daemon = True
+        reconnect_timer.start()
 
 
 def meta_callback(event, player_instance):
@@ -198,6 +219,20 @@ def meta_callback(event, player_instance):
         now_playing = media.get_meta(12)  # vlc.Meta.NowPlaying
         if now_playing:
             current_track_name = now_playing
+
+
+def attach_player_event_handlers() -> None:
+    global player_event_handlers_attached
+    if player_event_handlers_attached:
+        return
+
+    event_manager = player.event_manager()
+    event_manager.event_attach(vlc.EventType.MediaMetaChanged, meta_callback, player)
+    event_manager.event_attach(vlc.EventType.MediaPlayerEndReached, reconnect_callback, player)
+    event_manager.event_attach(
+        vlc.EventType.MediaPlayerEncounteredError, reconnect_callback, player
+    )
+    player_event_handlers_attached = True
 
 
 @mcp.tool()
@@ -213,27 +248,24 @@ def play_radio_station(url: str) -> dict:
         dict: Success status and message
     """
     global current_track_name, is_intentionally_stopped, current_radio_url
-    global current_reconnect_delay
+    global current_reconnect_delay, reconnect_timer
     current_track_name = None
     is_intentionally_stopped = False
     current_radio_url = url
     current_reconnect_delay = INITIAL_RECONNECT_DELAY  # Reset delay on manual play
+
+    with reconnect_timer_lock:
+        if reconnect_timer and reconnect_timer.is_alive():
+            reconnect_timer.cancel()
+        reconnect_timer = None
+
     try:
         resolved_url = resolve_stream_url(url)
         media = vlc_instance.media_new(resolved_url)
         player.set_media(media)
 
-        # Hook metadata changes
-        event_manager = player.event_manager()
-        event_manager.event_attach(
-            vlc.EventType.MediaMetaChanged, meta_callback, player
-        )
-        event_manager.event_attach(
-            vlc.EventType.MediaPlayerEndReached, reconnect_callback, player
-        )
-        event_manager.event_attach(
-            vlc.EventType.MediaPlayerEncounteredError, reconnect_callback, player
-        )
+        # Hook metadata/reconnect events only once for this player instance.
+        attach_player_event_handlers()
 
         player.play()
         return {"success": True, "message": f"Started playback of {resolved_url}"}
