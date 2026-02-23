@@ -7,6 +7,10 @@
 # ]
 # ///
 
+import os
+import sys
+import threading
+import time
 import vlc
 from mcp.server.fastmcp import FastMCP
 
@@ -23,6 +27,18 @@ mcp = FastMCP("radio-browser-mcp")
 # Global VLC instance and player
 vlc_instance = vlc.Instance("--no-video")
 player = vlc_instance.media_player_new()
+
+is_intentionally_stopped = False
+current_radio_url = None
+
+# Reconnection configuration (normalized as constants)
+INITIAL_RECONNECT_DELAY = float(os.environ.get("RADIO_INITIAL_RECONNECT_DELAY", 0.1))
+MAX_RECONNECT_DELAY = float(os.environ.get("RADIO_MAX_RECONNECT_DELAY", 30.0))
+RECONNECT_BACKOFF_THRESHOLD = float(os.environ.get("RADIO_RECONNECT_BACKOFF_THRESHOLD", 5.0))
+
+# Reconnection state
+current_reconnect_delay = INITIAL_RECONNECT_DELAY
+last_reconnect_attempt_time = 0
 
 
 def get_playstate_str(state):
@@ -123,6 +139,31 @@ def resolve_stream_url(url: str) -> str:
 current_track_name = None
 
 
+def reconnect_callback(event, player_instance):
+    global is_intentionally_stopped, current_radio_url
+    global current_reconnect_delay, last_reconnect_attempt_time
+    
+    if not is_intentionally_stopped and current_radio_url:
+        now = time.time()
+        
+        # If we are reconnecting too soon, increase backoff
+        if now - last_reconnect_attempt_time < RECONNECT_BACKOFF_THRESHOLD:
+            current_reconnect_delay = min(current_reconnect_delay * 2, MAX_RECONNECT_DELAY)
+        else:
+            current_reconnect_delay = INITIAL_RECONNECT_DELAY
+            
+        last_reconnect_attempt_time = now
+        
+        print(f"Radio disconnect detected. Reconnecting in {current_reconnect_delay:.1f} seconds...", file=sys.stderr)
+        
+        def do_reconnect():
+            if not is_intentionally_stopped and current_radio_url:
+                print(f"Reconnecting to {current_radio_url}...", file=sys.stderr)
+                play_radio_station(current_radio_url)
+
+        threading.Timer(current_reconnect_delay, do_reconnect).start()
+
+
 def meta_callback(event, player_instance):
     global current_track_name
     media = player_instance.get_media()
@@ -144,8 +185,12 @@ def play_radio_station(url: str) -> dict:
     Returns:
         dict: Success status and message
     """
-    global current_track_name
+    global current_track_name, is_intentionally_stopped, current_radio_url
+    global current_reconnect_delay
     current_track_name = None
+    is_intentionally_stopped = False
+    current_radio_url = url
+    current_reconnect_delay = INITIAL_RECONNECT_DELAY  # Reset delay on manual play
     try:
         resolved_url = resolve_stream_url(url)
         media = vlc_instance.media_new(resolved_url)
@@ -155,6 +200,12 @@ def play_radio_station(url: str) -> dict:
         event_manager = player.event_manager()
         event_manager.event_attach(
             vlc.EventType.MediaMetaChanged, meta_callback, player
+        )
+        event_manager.event_attach(
+            vlc.EventType.MediaPlayerEndReached, reconnect_callback, player
+        )
+        event_manager.event_attach(
+            vlc.EventType.MediaPlayerEncounteredError, reconnect_callback, player
         )
 
         player.play()
@@ -171,6 +222,8 @@ def stop_radio() -> dict:
     Returns:
         dict: Success status and message
     """
+    global is_intentionally_stopped
+    is_intentionally_stopped = True
     try:
         player.stop()
         return {"success": True, "message": "Stopped playback"}

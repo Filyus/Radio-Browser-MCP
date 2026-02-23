@@ -16,6 +16,7 @@ A modern Model Context Protocol (MCP) server that provides access to the Radio B
 - **`get_radio_status()`**: Returns current station, URL, and **Now Playing** track metadata (updated dynamically).
 - **`set_radio_volume(volume)`**: Adjust volume (0-100).
 - **`get_radio_volume()`**: Retrieve current volume level.
+- **`Automatic Reconnection`**: Smooth playback with exponential backoff for unstable streams (configurable).
 
 ---
 
@@ -39,6 +40,16 @@ uvx --from . radio-browser-mcp
 ```
 
 ---
+
+## ⚙️ Configuration
+
+The server supports several environment variables to tune the automatic reconnection behavior:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `RADIO_INITIAL_RECONNECT_DELAY` | `0.1` | Starting delay in seconds for reconnection attempts. |
+| `RADIO_MAX_RECONNECT_DELAY` | `30.0` | Maximum capped delay for exponential backoff (seconds). |
+| `RADIO_RECONNECT_BACKOFF_THRESHOLD` | `5.0` | Window (seconds) to detect unstable streams and trigger backoff. |
 
 ## ⚙️ MCP Configuration
 
