@@ -19,6 +19,7 @@ from app import (
     get_radiobrowser_stats,
     search_stations_by_country,
     search_stations_by_name,
+    search_stations_by_tag as app_search_by_tag,
 )
 
 # Initialize MCP server
@@ -110,6 +111,21 @@ def search_stations_by_station_name(name: str) -> list:
         list: List of radio stations matching the search term
     """
     result = search_stations_by_name(name)
+    return result
+
+
+@mcp.tool()
+def search_stations_by_tag(tag: str) -> list:
+    """
+    Search radio stations by tag (genre).
+
+    Args:
+        tag (str): Tag or genre to search for (e.g., 'jazz', 'rock', 'classical')
+
+    Returns:
+        list: List of radio stations matching the tag
+    """
+    result = app_search_by_tag(tag)
     return result
 
 

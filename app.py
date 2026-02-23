@@ -160,3 +160,20 @@ def search_stations_by_name(name):
         return json.loads(stations)
     except Exception as e:
         return {"error": f"Failed to search stations by name '{name}': {str(e)}"}
+
+
+def search_stations_by_tag(tag):
+    """
+    Search radio stations by tag (genre)
+
+    Args:
+    tag (str): Tag or genre to search for
+
+    Returns:
+    list: List of radio stations matching the tag
+    """
+    try:
+        stations = download_radiobrowser("/json/stations/search", {"tag": tag})
+        return json.loads(stations)
+    except Exception as e:
+        return {"error": f"Failed to search stations by tag '{tag}': {str(e)}"}

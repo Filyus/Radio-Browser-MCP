@@ -8,6 +8,7 @@ A modern Model Context Protocol (MCP) server that provides access to the Radio B
 - **`get_radio_stats()`**: Database statistics (stations, countries, tags).
 - **`search_stations_by_country_code(country_code)`**: Discovery by ISO code (e.g., 'US', 'GB').
 - **`search_stations_by_station_name(name)`**: Fuzzy search for specific stations.
+- **`search_stations_by_tag(tag)`**: Search for stations by genre or tag (e.g., 'chillout', 'jazz', 'rock').
 - **`get_available_servers()`**: API server discovery and failover info.
 
 ### 🎵 Playback & Control Tools
