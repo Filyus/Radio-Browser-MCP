@@ -37,7 +37,7 @@ A modern Model Context Protocol (MCP) server that provides access to the Radio B
 - **VLC Media Player**: Must be installed on your system.
 - **Python 3.10+**
 
-## 🚀 Quick Start (Modern)
+## 🚀 Quick Start
 
 The server is optimized for [uv](https://github.com/astral-sh/uv). You can run it without even cloning the repository or managing a virtual environment.
 
