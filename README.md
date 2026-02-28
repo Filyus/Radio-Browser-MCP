@@ -9,19 +9,22 @@ A modern Model Context Protocol (MCP) server that provides access to the Radio B
 - **`search_stations_by_country_code(country_code)`**: Discovery by ISO code (e.g., 'US', 'GB').
 - **`search_stations_by_station_name(name)`**: Fuzzy search for specific stations.
 - **`search_stations_by_tag(tag)`**: Search for stations by genre or tag (e.g., 'chillout', 'jazz', 'rock').
+- **`get_available_tags([limit], [order])`**: Get the global list of available tags (sorted by station count or name).
 - **`search_global_top_voted_stations(limit)`**: Get the top voted stations globally from the API.
 - **`search_global_top_clicked_stations(limit)`**: Get the most clicked stations globally from the API.
 - **`get_available_servers()`**: API server discovery and failover info.
+  - Search responses are cached locally to improve personal tag analytics.
 
 ### ⭐ Favorites & Personal History
-- **`add_favorite_station(url, [name])`**: Add a radio station to your personal favorites list.
+- **`add_favorite_station(url, [name], [stationuuid])`**: Add a radio station to your personal favorites list.
 - **`remove_favorite_station(url)`**: Remove a station from favorites.
 - **`get_favorite_stations()`**: List all saved favorite stations.
 - **`get_my_recent_stations([limit])`**: View your most recently played stations.
 - **`get_my_top_stations([limit])`**: View your personal top stations sorted by total listening duration.
+- **`get_my_top_tags([limit])`**: View your personal top tags based on listened stations and cached station metadata.
 
 ### 🎵 Playback & Control Tools
-- **`play_radio_station(url)`**: Stream any radio URL directly to your system speakers. Supports playlist resolution (.m3u, .pls).
+- **`play_radio_station(url, [name], [stationuuid])`**: Stream any radio URL directly to your system speakers. Supports playlist resolution (.m3u, .pls).
 - **`stop_radio()`**: Immediate playback termination.
 - **`get_radio_status()`**: Returns current station, URL, and **Now Playing** track metadata (updated dynamically).
 - **`set_radio_volume(volume)`**: Adjust volume (0-100).
@@ -62,6 +65,7 @@ The server supports several environment variables to tune the automatic reconnec
 | `RADIO_RECONNECT_BACKOFF_THRESHOLD` | `5.0` | Window (seconds) to detect unstable streams and trigger backoff. |
 | `RADIO_ENABLE_BACKGROUND_TRACKING` | `true` | Enable periodic background commits of listening duration to SQLite. |
 | `RADIO_TRACKING_INTERVAL` | `60.0` | Interval (seconds) between background duration tracking commits. |
+| `RADIO_MAX_PLAYLIST_BYTES` | `262144` | Max bytes to read when resolving `.m3u`/`.pls` playlists. |
 
 ## ⚙️ MCP Configuration
 
@@ -118,7 +122,7 @@ If you have cloned the repository locally (e.g., for Antigravity AI or active de
 ## 📁 File Structure
 - `server.py`: FastMCP server with playback event hooks and history routing.
 - `app.py`: Radio Browser API client and playlist resolver.
-- `db.py`: SQLite database tracking for favorites and playback metrics (`radio_history.db`).
+- `db.py`: SQLite database tracking for favorites, playback metrics, and cached station metadata (`radio_history.db`).
 - `pyproject.toml`: Modern Python project definition.
 - `example_usage.py`: Demonstration script.
 

@@ -1,7 +1,10 @@
 import json
 import random
 import socket
-import urllib.request
+
+import requests
+
+USER_AGENT = "RadioBrowserMCP/1.0.0"
 
 _cached_servers = []
 
@@ -16,12 +19,15 @@ def get_radiobrowser_base_urls():
     hosts = []
     # Try the official discovery endpoint first
     try:
-        req = urllib.request.Request("https://de1.api.radio-browser.info/json/servers")
-        req.add_header("User-Agent", "RadioBrowserMCP/1.0.0")
-        with urllib.request.urlopen(req, timeout=5.0) as resp:
-            data = json.loads(resp.read())
-            for server in data:
-                hosts.append(server["name"])
+        response = requests.get(
+            "https://de1.api.radio-browser.info/json/servers",
+            headers={"User-Agent": USER_AGENT},
+            timeout=5.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        for server in data:
+            hosts.append(server["name"])
     except Exception:
         pass  # Silently fail to fallback
 
@@ -65,16 +71,16 @@ def download_uri(uri, param):
     """
     Download file with the correct headers set
     """
-    param_encoded = None
-    if param is not None:
-        param_encoded = json.dumps(param).encode("utf-8")
-    
-    req = urllib.request.Request(uri, param_encoded)
-    req.add_header("User-Agent", "RadioBrowserMCP/1.0.0")
-    req.add_header("Content-Type", "application/json")
-
-    with urllib.request.urlopen(req, timeout=5.0) as response:
-        return response.read()
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Content-Type": "application/json",
+    }
+    if param is None:
+        response = requests.get(uri, headers=headers, timeout=5.0)
+    else:
+        response = requests.post(uri, headers=headers, json=param, timeout=5.0)
+    response.raise_for_status()
+    return response.content
 
 
 def download_radiobrowser(path, param):
@@ -142,8 +148,7 @@ def search_stations_by_name(name):
     Returns:
     list: List of radio stations matching the search term
     """
-    stations = download_radiobrowser("/json/stations/search", {"name": name})
-    return json.loads(stations)
+    return search_stations({"name": name})
 
 
 def search_stations_by_tag(tag):
@@ -156,7 +161,20 @@ def search_stations_by_tag(tag):
     Returns:
     list: List of radio stations matching the tag
     """
-    stations = download_radiobrowser("/json/stations/search", {"tag": tag})
+    return search_stations({"tag": tag})
+
+
+def search_stations(params):
+    """
+    Search stations by parameters accepted by /json/stations/search.
+
+    Args:
+    params (dict): Search parameters (e.g. {"name": "BBC"}, {"tag": "jazz"})
+
+    Returns:
+    list: List of matching radio stations
+    """
+    stations = download_radiobrowser("/json/stations/search", params)
     return json.loads(stations)
 
 
@@ -174,3 +192,27 @@ def get_top_clicked_stations(limit=10):
     """
     stations = download_radiobrowser(f"/json/stations/topclick/{limit}", None)
     return json.loads(stations)
+
+
+def get_available_tags(limit=100, order="stationcount", reverse=True):
+    """
+    Get available tags from the Radio Browser API.
+
+    Args:
+    limit (int): Maximum number of tags to return
+    order (str): Sort field ("stationcount" or "name")
+    reverse (bool): Descending order if True
+
+    Returns:
+    list: List of tags with counters
+    """
+    tags = download_radiobrowser(
+        "/json/tags",
+        {
+            "limit": int(limit),
+            "order": order,
+            "reverse": bool(reverse),
+            "hidebroken": True,
+        },
+    )
+    return json.loads(tags)
