@@ -13,10 +13,15 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import atexit
 from typing import Any
 
 import vlc
 from mcp.server.fastmcp import FastMCP
+import db
+
+# Initialize database
+db.init_db()
 
 from app import (
     get_radiobrowser_base_urls,
@@ -26,6 +31,10 @@ from app import (
 )
 from app import (
     search_stations_by_tag as app_search_by_tag,
+)
+from app import (
+    get_top_voted_stations,
+    get_top_clicked_stations,
 )
 
 # Initialize MCP server
@@ -37,6 +46,55 @@ player = vlc_instance.media_player_new()
 
 is_intentionally_stopped = False
 current_radio_url = None
+
+# Database tracking state
+current_db_url = None
+current_db_name = None
+playback_start_time = None
+last_db_update_time = None
+tracking_timer = None
+tracking_timer_lock = threading.Lock()
+
+# Tracking configuration
+ENABLE_BACKGROUND_TRACKING = os.environ.get(
+    "RADIO_ENABLE_BACKGROUND_TRACKING", "true"
+).lower() in ("true", "1", "yes")
+
+TRACKING_INTERVAL = float(
+    os.environ.get("RADIO_TRACKING_INTERVAL", 60.0)
+)
+
+def _update_duration():
+    global current_db_url, current_db_name, last_db_update_time, tracking_timer
+
+    with tracking_timer_lock:
+        if not current_db_url or not last_db_update_time:
+            return
+
+        now = time.time()
+        duration = now - last_db_update_time
+        if duration > 0:
+            try:
+                db.update_listening_history(current_db_url, duration, current_db_name)
+                last_db_update_time = now
+            except Exception as e:
+                print(f"Error updating duration: {e}", file=sys.stderr)
+
+        # Schedule next update
+        if ENABLE_BACKGROUND_TRACKING:
+            tracking_timer = threading.Timer(TRACKING_INTERVAL, _update_duration)
+            tracking_timer.daemon = True
+            tracking_timer.start()
+
+def _track_final_duration():
+    _update_duration()
+    with tracking_timer_lock:
+        global tracking_timer
+        if tracking_timer:
+            tracking_timer.cancel()
+            tracking_timer = None
+
+atexit.register(_track_final_duration)
 
 # Reconnection configuration (normalized as constants)
 INITIAL_RECONNECT_DELAY = float(
@@ -155,6 +213,42 @@ def search_stations_by_tag(tag: str) -> dict[str, Any]:
     except Exception as e:
         return {"success": False, "stations": [], "error": str(e)}
 
+
+@mcp.tool()
+def search_global_top_voted_stations(limit: int = 10) -> dict[str, Any]:
+    """
+    Get the top voted stations globally from the Radio Browser database.
+
+    Args:
+        limit (int): Number of stations to return (default 10)
+
+    Returns:
+        dict[str, Any]: Success flag and list of top voted radio stations
+    """
+    try:
+        result = get_top_voted_stations(limit)
+        return {"success": True, "stations": result}
+    except Exception as e:
+        return {"success": False, "stations": [], "error": str(e)}
+
+
+@mcp.tool()
+def search_global_top_clicked_stations(limit: int = 10) -> dict[str, Any]:
+    """
+    Get the most clicked stations globally from the Radio Browser database.
+
+    Args:
+        limit (int): Number of stations to return (default 10)
+
+    Returns:
+        dict[str, Any]: Success flag and list of most clicked radio stations
+    """
+    try:
+        result = get_top_clicked_stations(limit)
+        return {"success": True, "stations": result}
+    except Exception as e:
+        return {"success": False, "stations": [], "error": str(e)}
+
 def _extract_stream_url_from_playlist(url: str, content: str) -> str | None:
     lines = content.splitlines()
     lower_url = url.lower()
@@ -237,12 +331,13 @@ def reconnect_callback(event, player_instance):
 
         def do_reconnect():
             global reconnect_timer
+            global current_db_name
             with reconnect_timer_lock:
                 reconnect_timer = None
 
             if not is_intentionally_stopped and current_radio_url:
                 print(f"Reconnecting to {current_radio_url}...", file=sys.stderr)
-                play_radio_station(current_radio_url)
+                play_radio_station(current_radio_url, name=current_db_name or "")
 
         reconnect_timer = threading.Timer(current_reconnect_delay, do_reconnect)
         reconnect_timer.daemon = True
@@ -275,19 +370,44 @@ def attach_player_event_handlers() -> None:
 
 
 @mcp.tool()
-def play_radio_station(url: str) -> dict:
+def play_radio_station(url: str, name: str = "") -> dict:
     """
     Play an audio stream from a given URL using VLC.
     Automatically resolves playlists if necessary.
 
     Args:
         url (str): The stream URL to play
+        name (str, optional): The stream name (for history tracking)
 
     Returns:
         dict: Success status and message
     """
     global current_track_name, is_intentionally_stopped, current_radio_url
     global current_reconnect_delay, reconnect_timer
+    global current_db_url, current_db_name, playback_start_time, last_db_update_time, tracking_timer
+
+    # If already playing something else, commit its duration first
+    _update_duration()
+
+    # Clear old tracking timer
+    with tracking_timer_lock:
+        if tracking_timer:
+            tracking_timer.cancel()
+            tracking_timer = None
+
+    current_db_url = url
+    current_db_name = name
+    now = time.time()
+    playback_start_time = now
+    last_db_update_time = now
+
+    # Start the periodic background tracking loop
+    if ENABLE_BACKGROUND_TRACKING:
+        with tracking_timer_lock:
+            tracking_timer = threading.Timer(TRACKING_INTERVAL, _update_duration)
+            tracking_timer.daemon = True
+            tracking_timer.start()
+
     current_track_name = None
     is_intentionally_stopped = False
     current_radio_url = url
@@ -321,6 +441,19 @@ def stop_radio() -> dict:
         dict: Success status and message
     """
     global is_intentionally_stopped
+    global current_db_url, current_db_name, playback_start_time, last_db_update_time, tracking_timer
+
+    # Commit final duration and stop background tracker
+    _update_duration()
+    with tracking_timer_lock:
+        if tracking_timer:
+            tracking_timer.cancel()
+            tracking_timer = None
+
+    current_db_url = None
+    playback_start_time = None
+    last_db_update_time = None
+
     is_intentionally_stopped = True
     try:
         player.stop()
@@ -413,6 +546,59 @@ def get_radio_volume() -> dict:
         return {"success": True, "volume": vol}
     except Exception as e:
         return {"success": False, "error": f"Failed to get volume: {str(e)}"}
+
+
+@mcp.tool()
+def add_favorite_station(url: str, name: str = "") -> dict:
+    """
+    Add a radio station to favorites.
+    """
+    try:
+        db.add_favorite(url, name)
+        return {"success": True, "message": f"Added to favorites: {name or url}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@mcp.tool()
+def remove_favorite_station(url: str) -> dict:
+    """
+    Remove a radio station from favorites.
+    """
+    try:
+        db.remove_favorite(url)
+        return {"success": True, "message": f"Removed from favorites: {url}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@mcp.tool()
+def get_favorite_stations() -> dict:
+    """
+    Get the list of favorite radio stations.
+    """
+    try:
+        return {"success": True, "favorites": db.get_favorites()}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@mcp.tool()
+def get_my_recent_stations(limit: int = 10) -> dict:
+    """
+    Get the most recently played radio stations from personal history.
+    """
+    try:
+        return {"success": True, "recent": db.get_my_recent_stations(limit)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@mcp.tool()
+def get_my_top_stations(limit: int = 10) -> dict:
+    """
+    Get personal top radio stations by total listening duration.
+    """
+    try:
+        return {"success": True, "top": db.get_my_top_stations(limit)}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":

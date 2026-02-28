@@ -9,7 +9,16 @@ A modern Model Context Protocol (MCP) server that provides access to the Radio B
 - **`search_stations_by_country_code(country_code)`**: Discovery by ISO code (e.g., 'US', 'GB').
 - **`search_stations_by_station_name(name)`**: Fuzzy search for specific stations.
 - **`search_stations_by_tag(tag)`**: Search for stations by genre or tag (e.g., 'chillout', 'jazz', 'rock').
+- **`search_global_top_voted_stations(limit)`**: Get the top voted stations globally from the API.
+- **`search_global_top_clicked_stations(limit)`**: Get the most clicked stations globally from the API.
 - **`get_available_servers()`**: API server discovery and failover info.
+
+### ⭐ Favorites & Personal History
+- **`add_favorite_station(url, [name])`**: Add a radio station to your personal favorites list.
+- **`remove_favorite_station(url)`**: Remove a station from favorites.
+- **`get_favorite_stations()`**: List all saved favorite stations.
+- **`get_my_recent_stations([limit])`**: View your most recently played stations.
+- **`get_my_top_stations([limit])`**: View your personal top stations sorted by total listening duration.
 
 ### 🎵 Playback & Control Tools
 - **`play_radio_station(url)`**: Stream any radio URL directly to your system speakers. Supports playlist resolution (.m3u, .pls).
@@ -44,17 +53,22 @@ uvx --from . radio-browser-mcp
 
 ## ⚙️ Configuration
 
-The server supports several environment variables to tune the automatic reconnection behavior:
+The server supports several environment variables to tune the automatic reconnection behavior and listening history tracking:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
 | `RADIO_INITIAL_RECONNECT_DELAY` | `0.1` | Starting delay in seconds for reconnection attempts. |
 | `RADIO_MAX_RECONNECT_DELAY` | `30.0` | Maximum capped delay for exponential backoff (seconds). |
 | `RADIO_RECONNECT_BACKOFF_THRESHOLD` | `5.0` | Window (seconds) to detect unstable streams and trigger backoff. |
+| `RADIO_ENABLE_BACKGROUND_TRACKING` | `true` | Enable periodic background commits of listening duration to SQLite. |
+| `RADIO_TRACKING_INTERVAL` | `60.0` | Interval (seconds) between background duration tracking commits. |
 
 ## ⚙️ MCP Configuration
 
-Add this to your MCP configuration file (e.g., `mcp_config.json` or Claude Desktop config):
+Based on how you installed the server, add one of the following configurations to your MCP client (such as Claude Desktop or `mcp_config.json` for Antigravity AI).
+
+### Option 1: Remote execution (via `uvx`)
+This is the recommended approach if you don't want to clone the repository manually. It fetches the code and dependencies automatically.
 
 ```json
 {
@@ -62,19 +76,49 @@ Add this to your MCP configuration file (e.g., `mcp_config.json` or Claude Deskt
     "radio-browser": {
       "command": "uvx",
       "args": [
-        "--from", "C:\\path\\to\\Radio-Browser-MCP",
+        "--from", "git+https://github.com/Filyus/Radio-Browser-MCP",
         "radio-browser-mcp"
-      ]
+      ],
+      "env": {
+        "RADIO_INITIAL_RECONNECT_DELAY": "0.1",
+        "RADIO_ENABLE_BACKGROUND_TRACKING": "true",
+        "RADIO_TRACKING_INTERVAL": "60.0"
+      }
     }
   }
 }
 ```
 
+### Option 2: Local execution (via `uv run` / `python`)
+If you have cloned the repository locally (e.g., for Antigravity AI or active development), point the configuration to your local script path. Using `uv run` ensures all dependencies are managed automatically.
+
+```json
+{
+  "mcpServers": {
+    "radio-browser": {
+      "command": "uv",
+      "args": [
+        "run",
+        "C:\\MCP-Servers\\Radio-Browser-MCP\\server.py"
+      ],
+      "env": {
+        "RADIO_INITIAL_RECONNECT_DELAY": "0.1",
+        "RADIO_ENABLE_BACKGROUND_TRACKING": "true",
+        "RADIO_TRACKING_INTERVAL": "60.0"
+      }
+    }
+  }
+}
+```
+
+*(Note: You can replace `"uv", "run"` with `"python"` if you have manually installed dependencies via `pip` into your active environment.)*
+
 ---
 
 ## 📁 File Structure
-- `server.py`: FastMCP server with playback event hooks.
+- `server.py`: FastMCP server with playback event hooks and history routing.
 - `app.py`: Radio Browser API client and playlist resolver.
+- `db.py`: SQLite database tracking for favorites and playback metrics (`radio_history.db`).
 - `pyproject.toml`: Modern Python project definition.
 - `example_usage.py`: Demonstration script.
 

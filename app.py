@@ -158,3 +158,19 @@ def search_stations_by_tag(tag):
     """
     stations = download_radiobrowser("/json/stations/search", {"tag": tag})
     return json.loads(stations)
+
+
+def get_top_voted_stations(limit=10):
+    """
+    Get the top voted stations from the Radio Browser API
+    """
+    stations = download_radiobrowser(f"/json/stations/topvote/{limit}", None)
+    return json.loads(stations)
+
+
+def get_top_clicked_stations(limit=10):
+    """
+    Get the most clicked stations from the Radio Browser API
+    """
+    stations = download_radiobrowser(f"/json/stations/topclick/{limit}", None)
+    return json.loads(stations)
