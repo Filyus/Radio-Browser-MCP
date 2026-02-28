@@ -7,19 +7,20 @@
 # ]
 # ///
 
+import atexit
 import os
 import sys
 import threading
 import time
 import urllib.parse
-import atexit
 from typing import Any
 
 import requests
 import vlc
 from mcp.server.fastmcp import FastMCP
-import db
+
 import app
+import db
 
 # Initialize database
 db.init_db()
@@ -53,11 +54,184 @@ tracking_timer_lock = threading.Lock()
 ENABLE_BACKGROUND_TRACKING = os.environ.get(
     "RADIO_ENABLE_BACKGROUND_TRACKING", "true"
 ).lower() in ("true", "1", "yes")
+ENABLE_WINDOWS_SMTC_HOST = os.environ.get(
+    "RADIO_ENABLE_WINDOWS_SMTC_HOST", "false"
+).lower() in ("true", "1", "yes")
+ENABLE_WINDOWS_SMTC_HOST_PLAYER = os.environ.get(
+    "RADIO_ENABLE_WINDOWS_SMTC_HOST_PLAYER", "false"
+).lower() in ("true", "1", "yes")
+WINDOWS_SMTC_HOST_UPDATE_URL = os.environ.get(
+    "RADIO_WINDOWS_SMTC_HOST_UPDATE_URL", "http://127.0.0.1:8765/smtc/update"
+).strip()
+WINDOWS_SMTC_HOST_TIMEOUT = float(
+    os.environ.get("RADIO_WINDOWS_SMTC_HOST_TIMEOUT", "0.6")
+)
 
 TRACKING_INTERVAL = float(
     os.environ.get("RADIO_TRACKING_INTERVAL", 60.0)
 )
 MAX_PLAYLIST_BYTES = int(os.environ.get("RADIO_MAX_PLAYLIST_BYTES", 262144))
+
+
+class WindowsSMTCHostClient:
+    def __init__(self) -> None:
+        self.enabled = ENABLE_WINDOWS_SMTC_HOST and sys.platform.startswith("win")
+        self.player_enabled = self.enabled and ENABLE_WINDOWS_SMTC_HOST_PLAYER
+        self.update_url = WINDOWS_SMTC_HOST_UPDATE_URL
+        self.timeout = WINDOWS_SMTC_HOST_TIMEOUT
+        self.online = False
+        self.error: str | None = None
+        self.last_payload: dict[str, str] | None = None
+        self.last_http_status: int | None = None
+        self.last_response_text: str | None = None
+
+    def update(self, title: str, artist: str, status: str) -> None:
+        if not self.enabled:
+            return
+
+        payload = {
+            "title": (title or "").strip(),
+            "artist": (artist or "").strip(),
+            "status": status,
+        }
+        self.last_payload = payload
+        try:
+            response = requests.post(
+                self.update_url,
+                json=payload,
+                timeout=self.timeout,
+            )
+            self.last_http_status = response.status_code
+            self.last_response_text = response.text
+            if response.ok:
+                self.online = True
+                self.error = None
+            else:
+                self.online = False
+                self.error = f"HTTP {response.status_code}"
+        except Exception as e:
+            self.online = False
+            self.error = str(e)
+            self.last_http_status = None
+            self.last_response_text = None
+
+    def _request_json(
+        self,
+        method: str,
+        url: str,
+        json_payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        try:
+            response = requests.request(
+                method,
+                url,
+                json=json_payload,
+                timeout=self.timeout,
+            )
+            parsed_body: Any
+            try:
+                parsed_body = response.json()
+            except Exception:
+                parsed_body = response.text
+            return {
+                "success": response.ok,
+                "status_code": response.status_code,
+                "url": url,
+                "body": parsed_body,
+            }
+        except Exception as e:
+            return {"success": False, "url": url, "error": str(e)}
+
+    def _build_debug_url(self) -> str:
+        parsed = urllib.parse.urlparse(self.update_url)
+        return urllib.parse.urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                "/debug/state",
+                "",
+                "",
+                "",
+            )
+        )
+
+    def _build_health_url(self) -> str:
+        parsed = urllib.parse.urlparse(self.update_url)
+        return urllib.parse.urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                "/health",
+                "",
+                "",
+                "",
+            )
+        )
+
+    def _build_player_url(self, action: str) -> str:
+        parsed = urllib.parse.urlparse(self.update_url)
+        path = f"/player/{action.strip('/')}"
+        return urllib.parse.urlunparse(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                path,
+                "",
+                "",
+                "",
+            )
+        )
+
+    def health(self) -> dict[str, Any]:
+        if not self.enabled:
+            return {"success": False, "error": "Host client disabled"}
+
+        return self._request_json("GET", self._build_health_url())
+
+    def debug_state(self) -> dict[str, Any]:
+        if not self.enabled:
+            return {"success": False, "error": "Host client disabled"}
+
+        return self._request_json("GET", self._build_debug_url())
+
+    def player_play(self, url: str, name: str = "") -> dict[str, Any]:
+        if not self.player_enabled:
+            return {"success": False, "error": "Host player disabled"}
+        return self._request_json(
+            "POST",
+            self._build_player_url("play"),
+            {"url": url, "name": name},
+        )
+
+    def player_stop(self) -> dict[str, Any]:
+        if not self.player_enabled:
+            return {"success": False, "error": "Host player disabled"}
+        return self._request_json(
+            "POST",
+            self._build_player_url("stop"),
+            {},
+        )
+
+    def player_set_volume(self, volume: int) -> dict[str, Any]:
+        if not self.player_enabled:
+            return {"success": False, "error": "Host player disabled"}
+        return self._request_json(
+            "POST",
+            self._build_player_url("volume"),
+            {"volume": int(volume)},
+        )
+
+    def player_status(self) -> dict[str, Any]:
+        if not self.player_enabled:
+            return {"success": False, "error": "Host player disabled"}
+        return self._request_json(
+            "GET",
+            self._build_player_url("status"),
+        )
+
+
+windows_smtc_host = WindowsSMTCHostClient()
+active_playback_backend = "vlc"
 
 
 def _ensure_player_ready() -> str | None:
@@ -67,6 +241,29 @@ def _ensure_player_ready() -> str | None:
             f"initialize it. Details: {vlc_init_error or 'unknown error'}"
         )
     return None
+
+
+def _update_windows_media_session() -> None:
+    if active_playback_backend == "host_player":
+        return
+
+    status = "Stopped"
+    player_error = _ensure_player_ready()
+    if not player_error:
+        status = get_playstate_str(player.get_state())
+
+    station_name = current_db_name or "Radio Browser"
+    title = current_track_name or station_name
+    if status not in {"Playing", "Paused"}:
+        title = station_name
+
+    windows_smtc_host.update(title=title, artist=station_name, status=status)
+
+
+def _refresh_windows_media_session_later(delay_seconds: float = 1.5) -> None:
+    timer = threading.Timer(delay_seconds, _update_windows_media_session)
+    timer.daemon = True
+    timer.start()
 
 def _update_duration():
     global current_db_url, current_db_name, current_db_stationuuid
@@ -432,6 +629,7 @@ def meta_callback(event, player_instance):
         now_playing = media.get_meta(12)  # vlc.Meta.NowPlaying
         if now_playing:
             current_track_name = now_playing
+            _update_windows_media_session()
 
 
 def attach_player_event_handlers() -> None:
@@ -471,6 +669,7 @@ def play_radio_station(url: str, name: str = "", stationuuid: str = "") -> dict:
     global current_reconnect_delay, reconnect_timer
     global current_db_url, current_db_name, current_db_stationuuid
     global playback_start_time, last_db_update_time, tracking_timer
+    global active_playback_backend
 
     # If already playing something else, commit its duration first
     _update_duration()
@@ -489,10 +688,6 @@ def play_radio_station(url: str, name: str = "", stationuuid: str = "") -> dict:
         if reconnect_timer and reconnect_timer.is_alive():
             reconnect_timer.cancel()
         reconnect_timer = None
-
-    player_error = _ensure_player_ready()
-    if player_error:
-        return {"success": False, "error": player_error}
 
     try:
         resolved_url = resolve_stream_url(url)
@@ -517,6 +712,49 @@ def play_radio_station(url: str, name: str = "", stationuuid: str = "") -> dict:
                 tracking_timer.daemon = True
                 tracking_timer.start()
 
+        # Preferred path on Windows: delegate playback to SMTC host player.
+        if windows_smtc_host.player_enabled:
+            # Stop local VLC before host playback to avoid double audio.
+            try:
+                if player is not None:
+                    player.stop()
+            except Exception:
+                pass
+
+            host_play = windows_smtc_host.player_play(resolved_url, name=name or "")
+            if not host_play.get("success"):
+                # One quick retry helps when host just came up.
+                time.sleep(0.25)
+                host_play = windows_smtc_host.player_play(resolved_url, name=name or "")
+
+            if host_play.get("success"):
+                active_playback_backend = "host_player"
+                return {
+                    "success": True,
+                    "message": (
+                        "Started playback via SMTC host player "
+                        f"of {resolved_url}"
+                    ),
+                }
+
+            # Sometimes play request times out, but host still starts stream.
+            host_status = windows_smtc_host.player_status()
+            host_body = host_status.get("body", {}) if host_status.get("success") else {}
+            host_state = str(host_body.get("state", "")).strip()
+            if host_state in {"Playing", "Paused", "Connecting"}:
+                active_playback_backend = "host_player"
+                return {
+                    "success": True,
+                    "message": (
+                        "Started playback via SMTC host player "
+                        f"(status fallback) of {resolved_url}"
+                    ),
+                }
+
+        player_error = _ensure_player_ready()
+        if player_error:
+            return {"success": False, "error": player_error}
+
         media = vlc_instance.media_new(resolved_url)
         player.set_media(media)
 
@@ -524,6 +762,10 @@ def play_radio_station(url: str, name: str = "", stationuuid: str = "") -> dict:
         attach_player_event_handlers()
 
         player.play()
+        active_playback_backend = "vlc"
+        _update_windows_media_session()
+        _refresh_windows_media_session_later(1.5)
+        _refresh_windows_media_session_later(3.0)
         return {"success": True, "message": f"Started playback of {resolved_url}"}
     except Exception as e:
         return {"success": False, "error": f"Failed to start playback: {str(e)}"}
@@ -540,6 +782,7 @@ def stop_radio() -> dict:
     global is_intentionally_stopped
     global current_db_url, current_db_name, current_db_stationuuid
     global playback_start_time, last_db_update_time, tracking_timer
+    global active_playback_backend
 
     # Commit final duration and stop background tracker
     _update_duration()
@@ -555,10 +798,18 @@ def stop_radio() -> dict:
 
     is_intentionally_stopped = True
     try:
+        if active_playback_backend == "host_player":
+            host_stop = windows_smtc_host.player_stop()
+            active_playback_backend = "vlc"
+            if host_stop.get("success"):
+                return {"success": True, "message": "Stopped playback"}
+
         player_error = _ensure_player_ready()
         if player_error:
             return {"success": False, "error": player_error}
         player.stop()
+        active_playback_backend = "vlc"
+        _update_windows_media_session()
         return {"success": True, "message": "Stopped playback"}
     except Exception as e:
         return {"success": False, "error": f"Failed to stop playback: {str(e)}"}
@@ -573,6 +824,36 @@ def get_radio_status() -> dict:
         dict: The current state, URL, and track info of the playing radio station
     """
     try:
+        if active_playback_backend == "host_player":
+            host_status = windows_smtc_host.player_status()
+            if host_status.get("success"):
+                body = host_status.get("body", {})
+                state = body.get("state", "Stopped")
+                title = body.get("title")
+                artist = body.get("artist")
+                return {
+                    "success": True,
+                    "status": state,
+                    "url": body.get("url"),
+                    "now_playing": title,
+                    "title": title,
+                    "playback_backend": active_playback_backend,
+                    "windows_media": {
+                        "host_client": {
+                            "enabled": windows_smtc_host.enabled,
+                            "player_enabled": windows_smtc_host.player_enabled,
+                            "online": windows_smtc_host.online,
+                            "update_url": windows_smtc_host.update_url,
+                            "last_payload": windows_smtc_host.last_payload,
+                            "last_http_status": windows_smtc_host.last_http_status,
+                            "last_response_text": windows_smtc_host.last_response_text,
+                            "error": windows_smtc_host.error,
+                            "player_status": body,
+                            "artist": artist,
+                        },
+                    },
+                }
+
         player_error = _ensure_player_ready()
         if player_error:
             return {"success": False, "error": player_error}
@@ -613,9 +894,55 @@ def get_radio_status() -> dict:
             "url": current_url,
             "now_playing": now_playing,
             "title": title,
+            "playback_backend": active_playback_backend,
+            "windows_media": {
+                "host_client": {
+                    "enabled": windows_smtc_host.enabled,
+                    "player_enabled": windows_smtc_host.player_enabled,
+                    "online": windows_smtc_host.online,
+                    "update_url": windows_smtc_host.update_url,
+                    "last_payload": windows_smtc_host.last_payload,
+                    "last_http_status": windows_smtc_host.last_http_status,
+                    "last_response_text": windows_smtc_host.last_response_text,
+                    "error": windows_smtc_host.error,
+                },
+            },
         }
     except Exception as e:
         return {"success": False, "error": f"Failed to get status: {str(e)}"}
+
+
+@mcp.tool()
+def get_windows_media_bridge_status() -> dict:
+    """
+    Get detailed bridge status for MCP -> SMTC host integration.
+
+    Returns:
+        dict: Client status, /health probe, and /debug/state probe.
+    """
+    try:
+        return {
+            "success": True,
+            "host_client": {
+                "enabled": windows_smtc_host.enabled,
+                "player_enabled": windows_smtc_host.player_enabled,
+                "online": windows_smtc_host.online,
+                "update_url": windows_smtc_host.update_url,
+                "last_payload": windows_smtc_host.last_payload,
+                "last_http_status": windows_smtc_host.last_http_status,
+                "last_response_text": windows_smtc_host.last_response_text,
+                "error": windows_smtc_host.error,
+            },
+            "playback_backend": active_playback_backend,
+            "host_health": windows_smtc_host.health(),
+            "host_debug_state": windows_smtc_host.debug_state(),
+            "host_player_status": windows_smtc_host.player_status(),
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to get windows media bridge status: {str(e)}",
+        }
 
 
 @mcp.tool()
@@ -630,12 +957,18 @@ def set_radio_volume(volume: int) -> dict:
         dict: Success status and current volume
     """
     try:
+        vol = max(0, min(100, volume))
+        if active_playback_backend == "host_player":
+            host_volume = windows_smtc_host.player_set_volume(vol)
+            if host_volume.get("success"):
+                return {"success": True, "message": f"Volume set to {vol}%"}
+
         player_error = _ensure_player_ready()
         if player_error:
             return {"success": False, "error": player_error}
         # Clamp between 0 and 100
-        vol = max(0, min(100, volume))
         player.audio_set_volume(vol)
+        _update_windows_media_session()
         return {"success": True, "message": f"Volume set to {vol}%"}
     except Exception as e:
         return {"success": False, "error": f"Failed to set volume: {str(e)}"}
@@ -650,6 +983,13 @@ def get_radio_volume() -> dict:
         dict: Success status and current volume level
     """
     try:
+        if active_playback_backend == "host_player":
+            host_status = windows_smtc_host.player_status()
+            if host_status.get("success"):
+                body = host_status.get("body", {})
+                if isinstance(body, dict) and "volume" in body:
+                    return {"success": True, "volume": int(body.get("volume", 0))}
+
         player_error = _ensure_player_ready()
         if player_error:
             return {"success": False, "error": player_error}

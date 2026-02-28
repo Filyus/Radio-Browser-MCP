@@ -26,16 +26,19 @@ A modern Model Context Protocol (MCP) server that provides access to the Radio B
 ### 🎵 Playback & Control Tools
 - **`play_radio_station(url, [name], [stationuuid])`**: Stream any radio URL directly to your system speakers. Supports playlist resolution (.m3u, .pls).
 - **`stop_radio()`**: Immediate playback termination.
-- **`get_radio_status()`**: Returns current station, URL, and **Now Playing** track metadata (updated dynamically).
+- **`get_radio_status()`**: Returns current station, URL, **Now Playing** track metadata, and Windows media bridge state.
+- **`get_windows_media_bridge_status()`**: Detailed diagnostics for MCP -> SMTC host communication (`/health` + `/debug/state`).
 - **`set_radio_volume(volume)`**: Adjust volume (0-100).
 - **`get_radio_volume()`**: Retrieve current volume level.
 - **`Automatic Reconnection`**: Smooth playback with exponential backoff for unstable streams (configurable).
+  - On Windows, playback can be delegated to `Radio-Browser-SMTC-Host` MediaPlayer. If unavailable, VLC fallback is used automatically.
 
 ---
 
 ## 🛠️ Requirements
 - **VLC Media Player**: Must be installed on your system.
 - **Python 3.10+**
+- **Optional (Windows media flyout integration)**: Run companion host at `Radio-Browser-SMTC-Host`.
 
 ## 🚀 Quick Start
 
@@ -56,7 +59,7 @@ uvx --from . radio-browser-mcp
 
 ## ⚙️ Configuration
 
-The server supports several environment variables to tune the automatic reconnection behavior and listening history tracking:
+The server supports several environment variables to tune reconnection, listening tracking, and Windows media session behavior:
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
@@ -66,6 +69,16 @@ The server supports several environment variables to tune the automatic reconnec
 | `RADIO_ENABLE_BACKGROUND_TRACKING` | `true` | Enable periodic background commits of listening duration to SQLite. |
 | `RADIO_TRACKING_INTERVAL` | `60.0` | Interval (seconds) between background duration tracking commits. |
 | `RADIO_MAX_PLAYLIST_BYTES` | `262144` | Max bytes to read when resolving `.m3u`/`.pls` playlists. |
+| `RADIO_ENABLE_WINDOWS_SMTC_HOST` | `false` | Send SMTC updates to external desktop host over HTTP (opt-in). |
+| `RADIO_ENABLE_WINDOWS_SMTC_HOST_PLAYER` | `false` | Prefer playback via desktop SMTC host (`/player/*`) before VLC fallback (opt-in). |
+| `RADIO_WINDOWS_SMTC_HOST_UPDATE_URL` | `http://127.0.0.1:8765/smtc/update` | Update endpoint of C# SMTC host. |
+| `RADIO_WINDOWS_SMTC_HOST_TIMEOUT` | `0.6` | HTTP timeout (seconds) for host updates. |
+
+### Windows SMTC + MSIX
+
+For full Windows setup (host player mode, MSIX packaging, certificate/install, troubleshooting), see:
+
+- [Radio-Browser-SMTC-Host/Windows-SMTC-MSIX.md](Radio-Browser-SMTC-Host/Windows-SMTC-MSIX.md)
 
 ## ⚙️ MCP Configuration
 

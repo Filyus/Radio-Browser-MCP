@@ -35,6 +35,14 @@ htmlcov/
 .smithery/
 radio_browser.db
 
+# .NET / C# (SMTC host)
+Radio-Browser-SMTC-Host/bin/
+Radio-Browser-SMTC-Host/obj/
+Radio-Browser-SMTC-Host/msix/out/
+*.user
+*.suo
+*.pdb
+
 # IDEs
 .vscode/
 .idea/
