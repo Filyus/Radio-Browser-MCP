@@ -122,7 +122,7 @@ If you have cloned the repository locally (e.g., for Antigravity AI or active de
 ## 📁 File Structure
 - `server.py`: FastMCP server with playback event hooks and history routing.
 - `app.py`: Radio Browser API client and playlist resolver.
-- `db.py`: SQLite database tracking for favorites, playback metrics, and cached station metadata (`radio_history.db`).
+- `db.py`: SQLite database tracking for favorites, playback metrics, and cached station metadata (`radio_browser.db`).
 - `pyproject.toml`: Modern Python project definition.
 - `example_usage.py`: Demonstration script.
 

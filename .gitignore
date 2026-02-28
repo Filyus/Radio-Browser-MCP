@@ -33,7 +33,7 @@ wheels/
 .coverage
 htmlcov/
 .smithery/
-radio_history.db
+radio_browser.db
 
 # IDEs
 .vscode/

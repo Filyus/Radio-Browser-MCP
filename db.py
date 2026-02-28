@@ -3,7 +3,7 @@ import os
 import time
 from typing import Any
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "radio_history.db")
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "radio_browser.db")
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
